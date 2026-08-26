@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Inference & Context Optimization Platform</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="navbar">
+            <div class="brand">
+                <div class="logo-icon">⚡</div>
+                <div>
+                    <h1>AI Context & Inference Gateway</h1>
+                    <p class="subtitle">Production-Grade Optimization Platform</p>
+                </div>
+            </div>
+            <div class="nav-actions">
+                <span class="status-badge live"><span class="dot"></span> Active Gateway</span>
+                <button class="btn btn-outline" id="btnClearCache">🔄 Clear Cache</button>
+            </div>
+        </header>
+
+        <!-- KPI Metrics Banner -->
+        <section class="kpi-banner">
+            <div class="kpi-card">
+                <span class="kpi-label">Cache Hit Rate</span>
+                <div class="kpi-value" id="kpiCacheHitRate">0.0%</div>
+                <span class="kpi-subtext" id="kpiCacheHitsCount">0 Exact / 0 Semantic</span>
+            </div>
+            <div class="kpi-card highlight">
+                <span class="kpi-label">Avg Latency Reduction</span>
+                <div class="kpi-value" id="kpiLatencySpeedup">0.0x</div>
+                <span class="kpi-subtext" id="kpiP50P95">P50: 0ms | P95: 0ms</span>
+            </div>
+            <div class="kpi-card">
+                <span class="kpi-label">Tokens Saved</span>
+                <div class="kpi-value" id="kpiTokensSaved">0</div>
+                <span class="kpi-subtext">Context Trimming & Budgeting</span>
+            </div>
+            <div class="kpi-card">
+                <span class="kpi-label">Cost Savings</span>
+                <div class="kpi-value" id="kpiCostSaved">$0.0000</div>
+                <span class="kpi-subtext">Model Routing Efficiency</span>
+            </div>
+        </section>
+
+        <!-- Navigation Tabs -->
+        <div class="tabs-header">
+            <button class="tab-btn active" data-tab="tab-doc-rag">📚 Document RAG & Comparative Chat</button>
+            <button class="tab-btn" data-tab="tab-playground">🧪 Live Text Playground</button>
+            <button class="tab-btn" data-tab="tab-context">📄 Context Compression Inspector</button>
+            <button class="tab-btn" data-tab="tab-metrics">📊 Observability & Metrics</button>
+        </div>
+
+        <!-- Tab 0: Document RAG & Comparative Chat -->
+        <div id="tab-doc-rag" class="tab-content active">
+            <div class="grid-2">
+                <!-- Document Upload & Collection Manager -->
+                <div class="card">
+                    <h3>📚 Document Upload & Vector Indexing</h3>
+                    <p class="subtitle">Upload documents (.pdf, .txt, .md, .json) to chunk, embed, and index for high-speed RAG retrieval.</p>
+                    
+                    <div class="drop-zone mt-4" id="dropZone">
+                        <div class="drop-icon">📁</div>
+                        <p class="drop-text">Drag & drop files here or <span class="browse-link" id="browseBtn">browse files</span></p>
+                        <span class="drop-subtext">Supports PDF, TXT, Markdown, JSON</span>
+                        <input type="file" id="fileInput" accept=".pdf,.txt,.md,.json" class="hidden" multiple>
+                    </div>
+
+                    <div class="uploaded-docs-section mt-4">
+                        <div class="section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <h4>Indexed Documents (<span id="docCount">0</span>)</h4>
+                            <span class="txt-muted" id="totalTokensIndexed" style="font-size: 12px;">0 total tokens</span>
+                        </div>
+                        <div class="doc-list" id="docList">
+                            <p class="txt-muted text-center py-4" style="font-size: 13px; text-align: center;">No documents uploaded yet. Upload a PDF/TXT document to get started!</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- RAG Query Console -->
+                <div class="card">
+                    <h3>💬 RAG Document Chat & Dual Comparison</h3>
+                    <p class="subtitle">Ask questions about your uploaded documents to compare Direct Baseline vs. AI Gateway performance.</p>
+
+                    <div class="form-group mt-4">
+                        <label for="docRagPrompt">Your Question</label>
+                        <textarea id="docRagPrompt" rows="4" placeholder="Ask a question about the uploaded document(s)... e.g., Summarize the main findings or policy rules."></textarea>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group half">
+                            <label for="docRagBudget">Context Token Budget</label>
+                            <input type="number" id="docRagBudget" value="1500" min="200" max="8000">
+                        </div>
+                        <div class="form-group half checkbox-group">
+                            <label><input type="checkbox" id="chkDocForceNoCache"> Disable Cache for Test</label>
+                        </div>
+                    </div>
+
+                    <button class="btn btn-primary btn-block" id="btnRunDocRag">
+                        ⚡ Ask Document (Run Dual Comparison)
+                    </button>
+                </div>
+            </div>
+
+            <!-- Dual Pathway Results -->
+            <div id="docRagResults" class="card mt-4">
+                <h3>⚡ Comparative Execution Performance</h3>
+                
+                <div id="docLoadingSpinner" class="hidden">
+                    <div class="spinner"></div>
+                    <p class="text-center" style="text-align: center; font-size: 13px; margin-top: 8px;">Processing RAG query through Direct Baseline & AI Gateway...</p>
+                </div>
+
+                <div id="docDeltaBox" class="delta-box">
+                    <div class="delta-badge-row">
+                        <div class="badge-card badge-green">
+                            <span class="badge-title">Speedup Multiplier</span>
+                            <span class="badge-value" id="docDeltaSpeedup">1.0x Faster</span>
+                        </div>
+                        <div class="badge-card badge-blue">
+                            <span class="badge-title">Tokens Saved</span>
+                            <span class="badge-value" id="docDeltaTokens">0.0%</span>
+                        </div>
+                        <div class="badge-card badge-purple">
+                            <span class="badge-title">Cost Saved</span>
+                            <span class="badge-value" id="docDeltaCost">$0.0000</span>
+                        </div>
+                    </div>
+
+                    <!-- Side-by-Side Comparison Columns -->
+                    <div class="comparison-columns">
+                        <!-- Column A: Direct Baseline -->
+                        <div class="col-result col-baseline">
+                            <h4>🔴 Direct Long-Context Baseline</h4>
+                            <p class="subtitle" style="font-size: 11px; margin-bottom: 8px;">Sends 100% raw uncompressed document text to large LLM</p>
+                            <div class="metric-row">
+                                <span>Model Used:</span> <strong id="docBaseModel">Direct Large Model</strong>
+                            </div>
+                            <div class="metric-row">
+                                <span>Latency:</span> <strong id="docBaseLatency">0 ms</strong>
+                            </div>
+                            <div class="metric-row">
+                                <span>Prompt Tokens:</span> <strong id="docBaseTokens">0</strong>
+                            </div>
+                            <div class="metric-row">
+                                <span>Est. Cost:</span> <strong id="docBaseCost">$0.0000</strong>
+                            </div>
+                            <div class="response-box" id="docBaseResponse">Ask a question to see response.</div>
+                        </div>
+
+                        <!-- Column B: Optimized Gateway -->
+                        <div class="col-result col-optimized">
+                            <h4>🟢 Optimized AI Gateway</h4>
+                            <p class="subtitle" style="font-size: 11px; margin-bottom: 8px;">Hybrid BM25+Vector RAG + Token Budgeting + Model Router</p>
+                            <div class="metric-row">
+                                <span>Routed Model:</span> <strong id="docOptModel">Tier 1 (Small)</strong>
+                            </div>
+                            <div class="metric-row">
+                                <span>Latency:</span> <strong id="docOptLatency" class="txt-green">0 ms</strong>
+                            </div>
+                            <div class="metric-row">
+                                <span>Prompt Tokens:</span> <strong id="docOptTokens">0</strong>
+                            </div>
+                            <div class="metric-row">
+                                <span>Cache Status:</span> <strong id="docOptCacheStatus" class="txt-blue">Miss</strong>
+                            </div>
+                            <div class="response-box" id="docOptResponse">Ask a question to see response.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab 1: Live Text Playground -->
+        <div id="tab-playground" class="tab-content">
+            <div class="scenario-bar">
+                <span class="scenario-title">⚡ Pre-loaded Demonstration Workloads:</span>
+                <button class="btn btn-sm scenario-btn" id="btnPresetFAQ">1. FAQ Repeated Query (Cache Hit Demo)</button>
+                <button class="btn btn-sm scenario-btn" id="btnPresetRAG">2. Long Document QA (Context Trimming Demo)</button>
+                <button class="btn btn-sm scenario-btn" id="btnPresetRouting">3. Simple vs Complex Query (Model Routing Demo)</button>
+            </div>
+
+            <div class="grid-2">
+                <!-- Input Panel -->
+                <div class="card input-card">
+                    <h3>Query & Context Input</h3>
+                    <div class="form-group">
+                        <label for="promptInput">User Question / Query</label>
+                        <textarea id="promptInput" rows="3" placeholder="Enter query (e.g. What is the capital of France?)"></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="contextInput">Context Document (RAG Text)</label>
+                        <textarea id="contextInput" rows="7" placeholder="Paste context documents or articles here..."></textarea>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group half">
+                            <label for="budgetInput">Token Budget</label>
+                            <input type="number" id="budgetInput" value="1500" min="200" max="8000">
+                        </div>
+                        <div class="form-group half checkbox-group">
+                            <label><input type="checkbox" id="chkForceNoCache"> Disable Cache for Test</label>
+                        </div>
+                    </div>
+
+                    <button class="btn btn-primary btn-block" id="btnRunBenchmark">
+                        ⚡ Run Side-by-Side Comparison
+                    </button>
+                </div>
+
+                <!-- Live Delta Comparison Results -->
+                <div class="card results-card">
+                    <h3>Performance Delta</h3>
+                    
+                    <div id="loadingSpinner" class="hidden">
+                        <div class="spinner"></div>
+                        <p>Executing Direct Baseline & Optimized Gateway in parallel...</p>
+                    </div>
+
+                    <div id="deltaResults" class="delta-box">
+                        <div class="delta-badge-row">
+                            <div class="badge-card badge-green">
+                                <span class="badge-title">Speedup</span>
+                                <span class="badge-value" id="deltaSpeedup">1.0x Faster</span>
+                            </div>
+                            <div class="badge-card badge-blue">
+                                <span class="badge-title">Token Savings</span>
+                                <span class="badge-value" id="deltaTokensPct">0.0%</span>
+                            </div>
+                            <div class="badge-card badge-purple">
+                                <span class="badge-title">Cost Saved</span>
+                                <span class="badge-value" id="deltaCost">$0.0000</span>
+                            </div>
+                        </div>
+
+                        <!-- Side-by-Side Output Columns -->
+                        <div class="comparison-columns">
+                            <!-- Column A: Baseline Direct LLM -->
+                            <div class="col-result col-baseline">
+                                <h4>🔴 Direct Unoptimized Baseline</h4>
+                                <div class="metric-row">
+                                    <span>Model:</span> <strong id="baseModel">Direct Large Model</strong>
+                                </div>
+                                <div class="metric-row">
+                                    <span>Latency:</span> <strong id="baseLatency">0 ms</strong>
+                                </div>
+                                <div class="metric-row">
+                                    <span>Prompt Tokens:</span> <strong id="baseTokens">0</strong>
+                                </div>
+                                <div class="metric-row">
+                                    <span>Est. Cost:</span> <strong id="baseCost">$0.0000</strong>
+                                </div>
+                                <div class="response-box" id="baseResponse">Run a test to compare outputs.</div>
+                            </div>
+
+                            <!-- Column B: Optimized Gateway -->
+                            <div class="col-result col-optimized">
+                                <h4>🟢 Optimized Platform Gateway</h4>
+                                <div class="metric-row">
+                                    <span>Routed Model:</span> <strong id="optModel">Tier 1 (Small)</strong>
+                                </div>
+                                <div class="metric-row">
+                                    <span>Latency:</span> <strong id="optLatency" class="txt-green">0 ms</strong>
+                                </div>
+                                <div class="metric-row">
+                                    <span>Prompt Tokens:</span> <strong id="optTokens">0</strong>
+                                </div>
+                                <div class="metric-row">
+                                    <span>Cache Status:</span> <strong id="optCacheStatus" class="txt-blue">Miss</strong>
+                                </div>
+                                <div class="response-box" id="optResponse">Run a test to compare outputs.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab 2: Context Compression Inspector -->
+        <div id="tab-context" class="tab-content">
+            <div class="card">
+                <h3>Context Compression & Deduplication Inspector</h3>
+                <p class="subtitle">See how the platform prunes fluff, deduplicates redundant text, and enforces token budget limits before hitting the LLM.</p>
+
+                <div class="grid-2 mt-4">
+                    <div>
+                        <h4>Original Raw Context (<span id="rawTokensCount">0</span> tokens)</h4>
+                        <div class="code-view" id="viewRawContext">No context loaded.</div>
+                    </div>
+                    <div>
+                        <h4>Optimized Context Chunks (<span id="optTokensCount">0</span> tokens | <span class="txt-green" id="optReductionPct">0%</span> reduction)</h4>
+                        <div class="code-view code-opt" id="viewOptContext">No optimized context.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab 3: Platform Observability & P50/P95/P99 -->
+        <div id="tab-metrics" class="tab-content">
+            <div class="grid-2">
+                <div class="card">
+                    <h3>Latency Distribution Breakdown</h3>
+                    <div class="metrics-grid">
+                        <div class="metric-tile">
+                            <span>P50 Latency (Median)</span>
+                            <h2 id="valP50">0 ms</h2>
+                        </div>
+                        <div class="metric-tile">
+                            <span>P95 Latency</span>
+                            <h2 id="valP95">0 ms</h2>
+                        </div>
+                        <div class="metric-tile">
+                            <span>P99 Latency</span>
+                            <h2 id="valP99">0 ms</h2>
+                        </div>
+                    </div>
+                    <div class="mt-4">
+                        <h4>Average Comparison</h4>
+                        <p>Direct Baseline Avg: <strong id="valAvgBase">0 ms</strong></p>
+                        <p>Optimized Gateway Avg: <strong id="valAvgOpt" class="txt-green">0 ms</strong></p>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3>Model Routing & Cache Hit Distribution</h3>
+                    <div class="tier-list" id="tierDistributionList">
+                        <p class="txt-muted">No request history recorded yet. Run queries in the playground!</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
