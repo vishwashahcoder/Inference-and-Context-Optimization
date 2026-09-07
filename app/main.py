@@ -1,3 +1,18 @@
+import os
+from dotenv import load_dotenv
+load_dotenv(override=True)
+
+# Enforce LangSmith Tracing Environment Variables immediately on process startup
+langsmith_key = os.getenv("LANGCHAIN_API_KEY") or os.getenv("LANGSMITH_API_KEY", "")
+project_name = os.getenv("LANGCHAIN_PROJECT") or os.getenv("LANGSMITH_PROJECT") or "inference"
+if langsmith_key:
+    os.environ["LANGCHAIN_TRACING_V2"] = "true"
+    os.environ["LANGCHAIN_API_KEY"] = langsmith_key
+    os.environ["LANGCHAIN_PROJECT"] = project_name
+    os.environ["LANGSMITH_TRACING"] = "true"
+    os.environ["LANGSMITH_API_KEY"] = langsmith_key
+    os.environ["LANGSMITH_PROJECT"] = project_name
+
 import time
 import uuid
 from typing import List, Dict, Any
@@ -26,6 +41,9 @@ app = FastAPI(
     description="Production-Grade AI Inference & Context Optimization Platform Gateway"
 )
 
+# Alias main to app so both `uvicorn app.main:app` and `uvicorn app.main:main` work seamlessly
+main = app
+
 # CORS Middleware
 app.add_middleware(
     CORSMiddleware,
@@ -38,12 +56,16 @@ app.add_middleware(
 import os
 
 # Sync LangSmith Tracing Environment Variables if present in .env
-langchain_key = os.getenv("LANGCHAIN_API_KEY")
-if langchain_key:
+langsmith_key = os.getenv("LANGCHAIN_API_KEY") or os.getenv("LANGSMITH_API_KEY")
+if langsmith_key:
+    project_name = os.getenv("LANGCHAIN_PROJECT") or os.getenv("LANGSMITH_PROJECT") or "inference"
     os.environ["LANGCHAIN_TRACING_V2"] = "true"
-    os.environ["LANGCHAIN_API_KEY"] = langchain_key
-    os.environ["LANGCHAIN_PROJECT"] = os.getenv("LANGCHAIN_PROJECT", "inference")
-    print(f"[STARTUP] LangSmith Tracing Enabled for Project: '{os.getenv('LANGCHAIN_PROJECT', 'inference')}'")
+    os.environ["LANGCHAIN_API_KEY"] = langsmith_key
+    os.environ["LANGCHAIN_PROJECT"] = project_name
+    os.environ["LANGSMITH_TRACING"] = "true"
+    os.environ["LANGSMITH_API_KEY"] = langsmith_key
+    os.environ["LANGSMITH_PROJECT"] = project_name
+    print(f"[STARTUP] LangSmith Tracing Enabled for Project: '{project_name}'")
 
 @app.on_event("startup")
 async def startup_event():
@@ -162,7 +184,8 @@ async def chat_completions(req: ChatCompletionRequest):
         system_prompt=system_prompt,
         model=route_info["model_name"],
         max_tokens=req.max_tokens or 500,
-        temperature=req.temperature or 0.7
+        temperature=req.temperature or 0.7,
+        run_name="🟢 Optimized AI Gateway (RAG - gpt-4o)" if req.context_documents else "🟢 Optimized AI Gateway (Chat)"
     )
 
     total_latency_ms = round((time.time() - start_time) * 1000, 2)
@@ -408,18 +431,19 @@ async def chat_document_rag(req: DocumentChatRequest):
     # --- Run 1: Baseline Direct Call ---
     base_start = time.time()
     strict_qa_sys = (
-        "You are an exact document extraction AI. Your ONLY task is to answer the user's question using EXCLUSIVELY the provided document text.\n"
+        "You are an enterprise AI Gateway assistant engineered for 100% factual accuracy and zero hallucinations.\n"
         "STRICT GROUNDING RULES:\n"
-        "1. Extract and list ONLY the items, abbreviations, or facts that are LITERALLY WRITTEN in the specific matching table or section.\n"
-        "2. For abbreviation queries, extract ONLY from the dedicated 'ABBREVIATION(S)' table/section. Do NOT include internal document control codes, headers, footers, or codes (like ATPL, LG01, BCDRR, BCDRP) unless they appear inside the abbreviation table.\n"
-        "3. Output EVERY abbreviation present in that table. Format: - **ACRONYM**: Full Expanded Definition\n"
-        "4. Do NOT use outside knowledge. Do NOT output table of contents dots, page numbers, or introductory summaries."
+        "1. Answer the user's question using EXCLUSIVELY the provided document context below.\n"
+        "2. Recognize the user's core intent even if their query contains typos, spelling mistakes, or informal language (e.g. 'annexture' refers to 'ANNEXURE', 'responisbility' refers to 'RESPONSIBILITY').\n"
+        "3. When asked for lists, annexures, forms, procedures, or definitions, extract and output EVERY relevant item present in that section with zero omissions.\n"
+        "4. Format the output professionally using bold names, bullet points, and exact codes/numbers from the text.\n"
+        "5. Do NOT use outside knowledge or speculate. Do NOT output table of contents dots or page numbers."
     )
     base_prompt = (
         f"QUESTION: {req.prompt}\n\n"
         f"INSTRUCTIONS:\n"
-        f"1. Search the document text below to find the specific section matching the user question.\n"
-        f"2. Extract and list the exact items, definitions, or facts requested (include both short acronym AND full meaning).\n"
+        f"1. Search the document text below to answer the user's question completely.\n"
+        f"2. Extract and list all relevant items, definitions, forms, or facts requested.\n"
         f"3. Do NOT print table of contents dots or page numbers.\n\n"
         f"DOCUMENT TEXT:\n{baseline_text}"
     )
@@ -428,7 +452,8 @@ async def chat_document_rag(req: DocumentChatRequest):
         prompt=base_prompt,
         system_prompt=strict_qa_sys,
         model=settings.MODEL_TIER_3_LARGE,
-        max_tokens=1200
+        max_tokens=1200,
+        run_name="🔴 Direct Baseline (Raw Document - gpt-4o)"
     )
     base_latency = round((time.time() - base_start) * 1000, 2)
     base_prompt_tokens = base_inf.get("prompt_tokens", RequestAnalyzer.estimate_tokens(base_prompt))
@@ -451,18 +476,38 @@ async def chat_document_rag(req: DocumentChatRequest):
     )
 
     # --- Run 2: Optimized AI Gateway Call ---
-    # RAG Search for top relevant chunks within token budget
-    rag_res = global_doc_processor.search_rag_chunks(
+    from app.services.prompt_modules import PromptModuleManager
+
+    # 1. Initial RAG Retrieval
+    raw_rag_res = global_doc_processor.search_rag_chunks(
         query=req.prompt,
         selected_doc_ids=req.selected_doc_ids,
         token_budget=req.token_budget or settings.DEFAULT_TOKEN_BUDGET
     )
 
-    # Enforce exact same model for 100% fair baseline comparison
+    # 2. Retrieval-Recall Check against Original Source Document with Auto Re-Retrieve Loop
+    rag_res = global_doc_processor.audit_and_auto_expand_retrieval(
+        query=req.prompt,
+        retrieved_result=raw_rag_res,
+        selected_doc_ids=req.selected_doc_ids
+    )
+
+    # 3. Modular System Prompt + Source Section Count Verification
+    modular_sys_prompt = PromptModuleManager.get_modular_prompt(req.prompt)
+    source_audit = PromptModuleManager.count_source_sections(rag_res["combined_text"])
+    if source_audit["numbered_steps_count"] > 0:
+        step_list_str = ", ".join(source_audit["step_headers"][:8])
+        modular_sys_prompt += (
+            f"\n\n[SOURCE VERIFICATION REQUIREMENT]:\n"
+            f"The original source document contains {source_audit['numbered_steps_count']} distinct steps/subsections ({step_list_str}). "
+            f"You MUST extract and detail EVERY SINGLE ONE of these {source_audit['numbered_steps_count']} steps in your output without skipping any."
+        )
+
+    # 4. Enforce exact same model for 100% fair baseline comparison
     opt_req = ChatCompletionRequest(
         model=settings.MODEL_TIER_3_LARGE,
         messages=[
-            ChatMessage(role="system", content=strict_qa_sys),
+            ChatMessage(role="system", content=modular_sys_prompt),
             ChatMessage(role="user", content=req.prompt)
         ],
         context_documents=[rag_res["combined_text"]] if rag_res["combined_text"] else None,
@@ -470,6 +515,27 @@ async def chat_document_rag(req: DocumentChatRequest):
         token_budget=req.token_budget
     )
     opt_resp = await chat_completions(opt_req)
+
+    # 5. Output Verification Check against Source Subsections with Auto Re-Prompt Loop
+    verified_steps = rag_res.get("recall_audit", {}).get("verified_steps", [])
+    if verified_steps:
+        gen_content = opt_resp.choices[0].message.content
+        missing_in_gen = [s for s in verified_steps if s.split()[0] not in gen_content]
+        if missing_in_gen and len(missing_in_gen) <= 4:
+            print(f"[RE-PROMPT LOOP] Model skipped {len(missing_in_gen)} subsections: {missing_in_gen}. Auto Re-prompting!")
+            re_prompt = (
+                f"Your response omitted the following verified subsections from the document: {', '.join(missing_in_gen)}.\n"
+                f"Using the context below, extract and detail these missing subsections completely:\n\n"
+                f"{rag_res['combined_text']}"
+            )
+            re_inf = await InferenceEngine.generate(
+                prompt=re_prompt,
+                system_prompt="Extract and detail the missing subsections completely from the document context.",
+                model=settings.MODEL_TIER_3_LARGE,
+                max_tokens=800,
+                run_name="🟢 Auto Re-Prompt Loop (Gap Completion)"
+            )
+            opt_resp.choices[0].message.content += f"\n\n### Additional Verified Subsections\n{re_inf['text']}"
 
     optimized_result = SingleRunResult(
         mode="Optimized AI Gateway",
@@ -513,6 +579,21 @@ async def chat_document_rag(req: DocumentChatRequest):
             "retrieved_chunks_count": len(rag_res["chunks"])
         }
     )
+
+@app.post("/api/agent/run")
+async def run_langchain_agent(req: Request):
+    """
+    Executes a multi-step LangChain Agent with tool calling (RAG Search, Cache Lookup).
+    Natively streams execution traces and exact token usage to LangSmith under project 'inference'.
+    """
+    from app.services.agent_manager import LangChainAgentManager
+    data = await req.json()
+    query = data.get("query", "").strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="Query cannot be empty")
+    
+    agent_result = await LangChainAgentManager.run(query)
+    return agent_result
 
 # Serve Static UI files
 app.mount("/static", StaticFiles(directory="app/static"), name="static")

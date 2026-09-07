@@ -21,21 +21,34 @@ class InferenceEngine:
     """
 
     @classmethod
-    @traceable(name="LLM Inference Execution")
     async def generate(
         cls, 
         prompt: str, 
         system_prompt: str = "You are a helpful assistant.", 
         model: str = settings.MODEL_TIER_1_SMALL,
         max_tokens: int = 500,
-        temperature: float = 0.7
+        temperature: float = 0.7,
+        run_name: Optional[str] = None
     ) -> Dict[str, Any]:
         start_time = time.time()
 
+        azure_key = (settings.AZURE_OPENAI_API_KEY or "").strip()
+        azure_endpoint = (settings.AZURE_OPENAI_ENDPOINT or "").strip()
         groq_key = (settings.GROQ_API_KEY or "").strip()
         gemini_key = (settings.GEMINI_API_KEY or "").strip()
 
-        # 1. Try Groq API if API Key is valid
+        # 1. Try Azure OpenAI via native LangChain for automatic LangSmith tracing & token tracking
+        if azure_key and azure_endpoint and len(azure_key) > 10:
+            try:
+                res = await cls._call_azure_openai_api(prompt, system_prompt, model, max_tokens, temperature, azure_key, azure_endpoint, run_name)
+                latency_ms = round((time.time() - start_time) * 1000, 2)
+                res["latency_ms"] = latency_ms
+                res["provider"] = "Azure OpenAI (gpt-4o)"
+                return res
+            except Exception as e:
+                print(f"[InferenceEngine] Azure OpenAI API call failed: {e}. Trying Groq or Gemini.")
+
+        # 2. Try Groq API if API Key is valid
         if groq_key and len(groq_key) > 10 and ("groq" in settings.DEFAULT_PROVIDER or settings.DEFAULT_PROVIDER == "auto"):
             try:
                 res = await cls._call_groq_api(prompt, system_prompt, model, max_tokens, temperature, groq_key)
@@ -46,7 +59,7 @@ class InferenceEngine:
             except Exception as e:
                 print(f"[InferenceEngine] Groq API call failed: {e}. Trying Gemini or Local Provider.")
 
-        # 2. Try Gemini API if key is valid
+        # 3. Try Gemini API if key is valid
         if gemini_key and len(gemini_key) > 10:
             try:
                 res = await cls._call_gemini_api(prompt, system_prompt, max_tokens, gemini_key)
@@ -57,12 +70,68 @@ class InferenceEngine:
             except Exception as e:
                 print(f"[InferenceEngine] Gemini API call failed: {e}. Falling back to Local Provider.")
 
-        # 3. Default Local Engine (Zero GPU, Zero API key required, 100% reliable)
+        # 4. Default Local Engine
         res = await cls._call_local_provider(prompt, system_prompt, model, max_tokens)
         latency_ms = round((time.time() - start_time) * 1000, 2)
         res["latency_ms"] = latency_ms
         res["provider"] = "Local Fast Inference Engine"
         return res
+
+    @classmethod
+    async def _call_azure_openai_api(
+        cls,
+        prompt: str,
+        system_prompt: str,
+        model: str,
+        max_tokens: int,
+        temperature: float,
+        api_key: str,
+        endpoint: str,
+        run_name: Optional[str] = None
+    ) -> Dict[str, Any]:
+        from langchain_openai import AzureChatOpenAI
+        from langchain_core.messages import SystemMessage, HumanMessage
+
+        deployment_name = settings.LLM_MODEL or "gpt-4o"
+        api_version = settings.API_VERSION or "2024-12-01-preview"
+        
+        llm = AzureChatOpenAI(
+            azure_deployment=deployment_name,
+            azure_endpoint=endpoint,
+            api_key=api_key,
+            api_version=api_version,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=30.0
+        )
+
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=prompt)
+        ]
+
+        from langchain_core.tracers import LangChainTracer
+
+        project_name = os.getenv("LANGCHAIN_PROJECT") or "inference"
+        tracer = LangChainTracer(project_name=project_name)
+
+        run_config = {
+            "run_name": run_name or f"AzureChatOpenAI ({deployment_name})",
+            "callbacks": [tracer]
+        }
+        resp = await llm.ainvoke(messages, config=run_config)
+        
+        answer = resp.content
+        usage = resp.response_metadata.get("token_usage", {})
+        prompt_tokens = usage.get("prompt_tokens") or RequestAnalyzer.estimate_tokens(prompt + system_prompt)
+        completion_tokens = usage.get("completion_tokens") or RequestAnalyzer.estimate_tokens(answer)
+
+        return {
+            "text": answer,
+            "model_used": deployment_name,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens
+        }
 
     @classmethod
     async def _call_groq_api(

@@ -67,3 +67,6 @@ Thumbs.db
 # Logs
 *.log
 logs/
+
+# Scratch & Temporary Testing Scripts
+scratch/

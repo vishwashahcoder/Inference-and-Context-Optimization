@@ -60,11 +60,12 @@ class CacheManager:
                 entry["hit_count"] = entry.get("hit_count", 0) + 1
                 return entry, "exact", 1.0
 
-        # 2. Semantic Similarity Check (combined prompt + context text)
+        # 2. Semantic Similarity Check with Secondary Intent & Critical Entity Verification
         query_str = f"{prompt} {context_text[:200]}" if context_text else prompt
         query_vec = self._compute_vector(query_str)
         best_score = 0.0
         best_entry = None
+        best_cached_prompt = ""
 
         for cached_vec, cached_prompt, entry in self.semantic_cache:
             if "Response to query:" in entry.get("response_text", "") or "successfully processed by" in entry.get("response_text", ""):
@@ -73,12 +74,67 @@ class CacheManager:
             if sim > best_score:
                 best_score = sim
                 best_entry = entry
+                best_cached_prompt = cached_prompt
 
+        # Dual validation: 1. Cosine similarity >= 0.88 AND 2. Secondary Intent/Entity Match
         if best_entry and best_score >= self.similarity_threshold:
-            best_entry["hit_count"] = best_entry.get("hit_count", 0) + 1
-            return best_entry, "semantic", round(best_score, 4)
+            if self._verify_intent_match(prompt, best_cached_prompt):
+                best_entry["hit_count"] = best_entry.get("hit_count", 0) + 1
+                return best_entry, "semantic", round(best_score, 4)
+            else:
+                # Rejected by secondary intent verification (e.g. RTO vs RPO, Section 5 vs Section 4)
+                pass
 
         return None, "miss", 0.0
+
+    @staticmethod
+    def _extract_critical_entities(text: str) -> Dict[str, Any]:
+        """
+        Extracts acronyms, section/step numbers, and domain topic nouns to guarantee
+        that two semantically close queries are truly asking for the same information target.
+        """
+        t_low = text.lower()
+        # 1. Acronyms & uppercase codes (e.g., RTO, RPO, AWS, BCDR, CTO, LAN, WAN, SOP)
+        acronyms = set(re.findall(r'\b[A-Z]{2,6}\b', text))
+        # 2. Section / step / annexure numbers (e.g. '5', '6.1', 'step 3')
+        numbers = set(re.findall(r'\b(?:section|step|annexure|part)?\s*(\d+(?:\.\d+)?)\b', t_low))
+        # 3. Specific domain topic nouns
+        domain_topics = set()
+        for kw in ["annexure", "procedure", "abbreviation", "responsibility", "definition", 
+                   "scope", "purpose", "incident", "recovery", "objective", "policy", "form", "logbook"]:
+            if kw in t_low:
+                domain_topics.add(kw)
+        return {
+            "acronyms": acronyms,
+            "numbers": numbers,
+            "domain_topics": domain_topics
+        }
+
+    @classmethod
+    def _verify_intent_match(cls, query: str, cached_prompt: str) -> bool:
+        """
+        Secondary intent validation layer.
+        Rejects semantic cache hits if critical acronyms, section numbers, or domain topics mismatch!
+        """
+        q_ent = cls._extract_critical_entities(query)
+        c_ent = cls._extract_critical_entities(cached_prompt)
+
+        # 1. Strict Acronym check: If both queries specify acronyms, they MUST have at least one overlap!
+        if q_ent["acronyms"] and c_ent["acronyms"]:
+            if not (q_ent["acronyms"] & c_ent["acronyms"]):
+                return False
+
+        # 2. Strict Section/Number check: If queries specify section/step numbers, they must match!
+        if q_ent["numbers"] and c_ent["numbers"]:
+            if not (q_ent["numbers"] & c_ent["numbers"]):
+                return False
+
+        # 3. Core Domain Topic check: If both have recognized domain topics, they must overlap!
+        if q_ent["domain_topics"] and c_ent["domain_topics"]:
+            if not (q_ent["domain_topics"] & c_ent["domain_topics"]):
+                return False
+
+        return True
 
     def set(
         self, 

@@ -7,12 +7,19 @@ class Settings(BaseSettings):
     VERSION: str = "1.0.0"
     API_V1_STR: str = "/v1"
 
-    # API Keys (Free tier APIs supported: Groq, Gemini, HuggingFace)
+    # API Keys (Azure OpenAI, Groq, Gemini, HuggingFace)
+    AZURE_OPENAI_API_KEY: str = os.getenv("AZURE_OPENAI_API_KEY", "")
+    AZURE_OPENAI_ENDPOINT: str = os.getenv("AZURE_OPENAI_ENDPOINT", "")
+    LLM_MODEL: str = os.getenv("LLM_MODEL", "gpt-4o")
+    LLM_TALENT_MODEL: str = os.getenv("LLM_TALENT_MODEL", "gpt-4.1")
+    EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "text-embedding-3-large")
+    API_VERSION: str = os.getenv("API_VERSION", "2024-12-01-preview")
+
     GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     HF_API_KEY: str = os.getenv("HF_API_KEY", "")
 
-    # Provider Mode: "auto", "groq", "gemini", "hf", "mock"
+    # Provider Mode: "auto", "azure", "groq", "gemini", "hf", "mock"
     DEFAULT_PROVIDER: str = "auto"
 
     # Semantic Cache Settings
